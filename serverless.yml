@@ -114,6 +114,12 @@ functions:
                 description: Create a image
                 requestModels:
                   'application/json': ImageRequest  
+    SyncWithElasticsearch:
+      handler: src/lambda/dynamoDb/elasticSearchSync.handler
+      events:
+        - stream:
+            type: dynamodb
+            arn: !GetAtt ImagesDynamoTable.StreamArn
 custom:
   webpack:
     webpackConfig: ./webpack.config.js 
@@ -220,3 +226,5 @@ resources:
                       ProjectionType: ALL #what all values need to be copied from the table to index ,since we have value ALL current then all values will be copied in the index
                 BillingMode: PAY_PER_REQUEST
                 TableName: ${self:provider.environment.IMAGES_TABLE}
+                StreamSpecification: # stream on dynamo table
+                  StreamViewType: NEW_IMAGE #te stream should only contains updated records only 
