@@ -7,12 +7,17 @@ const docClient = new AWS.DynamoDB.DocumentClient();
 
 const groupsTable = process.env.GROUPS_TABLE
 const imagesTable = process.env.IMAGES_TABLE
+const bucketName = process.env.IMAGES_S3_BUCKET
+const urlExpiration = +process.env.SIGNED_URL_EXPIRATION
 
+const s3 =  new AWS.S3({
+ signatureVersion: 'v4' 
+})
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent):Promise<APIGatewayProxyResult>=>{
 console.log('Processing event: ', event)
 const groupId = event.pathParameters.groupId
 const parsedBody = JSON.parse(event.body)
-
+const imageId=  uuid.v4() 
 
 const validGroupId = await groupExists(groupId)
 if(!validGroupId){
@@ -24,13 +29,15 @@ if(!validGroupId){
         body: JSON.stringify({error:'Group does not exist'})
     }
 }
-
+const uploadUrl = getUploadUrl(imageId)
 const newItem = {
     groupId: groupId,
     timeStamp: new Date().toISOString(),
-    imageId: uuid.v4(),
-    ...parsedBody
+    imageId,
+    ...parsedBody,
+    imageUrl: `https://${bucketName}.s3.amazonaws.com/${imageId}`
   }
+
 
 await createImage(newItem);
 
@@ -40,9 +47,18 @@ await createImage(newItem);
       'Access-Control-Allow-Origin': '*'
     },
     body: JSON.stringify({
-      newItem
+      newItem,
+      uploadUrl
     })
   }
+}
+
+function getUploadUrl(imageId: string) {
+  return s3.getSignedUrl("putObject", {
+    Bucket: bucketName,
+    Key: imageId,
+    Expires: urlExpiration,
+  });
 }
 
 async function createImage(newItem: any) {
