@@ -52,10 +52,15 @@ functions:
         API_ID:
           Ref: WebsocketsApi  #api id for websocket api
       events:
-        - s3:
-           bucket: ${self:provider.environment.IMAGES_S3_BUCKET}
-           event: s3:ObjectCreated:*
-           existing: true
+        - sns:
+            arn:
+              Fn::Join:
+                - ':'
+                - - arn:aws:sns
+                  - Ref: AWS::Region
+                  - Ref: AWS::AccountId
+                  - ${self:custom.topicName}
+            topicName: ${self:custom.topicName}
       
     ConnectHandler:
       handler: src/lambda/websocket/connect.handler
@@ -138,6 +143,7 @@ functions:
           - !Ref ElasticSecurityGroup
 
 custom:
+  topicName: imagesTopic-${self:provider.stage}
   webpack:
     webpackConfig: ./webpack.config.js 
     includeModules: true
@@ -156,6 +162,28 @@ custom:
         schema: ${file(models/create-image-request.json)}
 resources:
     Resources:
+        ImagesTopic:
+          Type: AWS::SNS::Topic
+          Properties:
+            DisplayName: Image bucket topic
+            TopicName: ${self:custom.topicName}
+        SNSTopicPolicy: #This policy allow s3 to send events to this topic
+          Type: AWS::SNS::TopicPolicy
+          Properties:
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Principal:
+                    AWS: '*'
+                  Action: sns:Publish # only allows our S3 bucket to this as we specify condition below  
+                  Resource:
+                    !Ref ImagesTopic
+                  Condition:
+                    ArnLike: 
+                      AWS:SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}
+            Topics:
+              - !Ref ImagesTopic
         ElasticVPC:
           Type: AWS::EC2::VPC
           Properties:
@@ -277,7 +305,12 @@ resources:
             TableName: ${self:provider.environment.CONNECTIONS_TABLE}
         AttachmentsBucket:
           Type: AWS::S3::Bucket
+          DependsOn: SNSTopicPolicy
           Properties:
+            NotificationConfiguration:
+              TopicConfigurations:
+                - Event: s3:ObjectCreated:Put
+                  Topic: !Ref ImagesTopic
             BucketName: ${self:provider.environment.IMAGES_S3_BUCKET}
             CorsConfiguration:
               CorsRules:
