@@ -14,14 +14,14 @@ provider:
         GROUPS_TABLE: Groups-${self:provider.stage}
         IMAGES_TABLE: Images-${self:provider.stage}
         IMAGE_ID_INDEX: ImageIdIndex
-        IMAGES_S3_BUCKET: serverless-udagram-images-lol-${self:provider.stage}
+        IMAGES_S3_BUCKET: serverless-udagram-images-1-${self:provider.stage}
         CONNECTIONS_TABLE: Connections-${self:provider.stage}
         SIGNED_URL_EXPIRATION: 300
     iamRoleStatements:
         - Effect: Allow
           Action:
-            - s3:GetObject
             - s3:PutObject
+            - s3:GetObject
           Resource: arn:aws:s3:::{self:provider.environment.IMAGES_S3_BUCKET}/*
         - Effect: Allow
           Action:
@@ -120,6 +120,23 @@ functions:
         - stream:
             type: dynamodb
             arn: !GetAtt ImagesDynamoTable.StreamArn
+      iamRoleStatements:
+        - Effect: Allow
+          Action:
+            - ec2:DescribeNetworkInterfaces
+            - ec2:CreateNetworkInterface
+            - ec2:DeleteNetworkInterface
+            - ec2:DescribeInstances
+            - ec2:AttachNetworkInterface
+          Resource: '*'
+      environment:
+        ES_ENDPOINT: !GetAtt ImageSearch.DomainEndpoint
+      vpc:
+        subnetIds:
+          - !Ref ElasticSubnetA
+        securityGroupIds:
+          - !Ref ElasticSecurityGroup
+
 custom:
   webpack:
     webpackConfig: ./webpack.config.js 
@@ -139,21 +156,98 @@ custom:
         schema: ${file(models/create-image-request.json)}
 resources:
     Resources:
+        ElasticVPC:
+          Type: AWS::EC2::VPC
+          Properties:
+            CidrBlock: "10.0.0.0/16"
+            EnableDnsSupport: "true"
+            EnableDnsHostnames: "true"
+            Tags:
+              - Key: Name
+                Value: dynamodb-streams-vpc
+        InternetGateway:
+          Type: AWS::EC2::InternetGateway
+          Properties:
+            Tags:
+              - Key: Name
+                Value: dynamodb-stream-internet-gateway
+        ElasticVPCGatewayAttachment:
+          Type: AWS::EC2::VPCGatewayAttachment
+          Properties:
+            InternetGatewayId: 
+              Ref: InternetGateway
+            VpcId:
+              Ref: ElasticVPC
+        ElasticRouteTable:
+          Type: AWS::EC2::RouteTable
+          Properties:
+            VpcId: 
+              Ref: ElasticVPC
+        ElasticRoute:
+          Type: AWS::EC2::Route
+          DependsOn: ElasticVPCGatewayAttachment
+          Properties:
+            RouteTableId: 
+              Ref: ElasticRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: 
+              Ref: InternetGateway
+        ElasticSubnetA:
+          DependsOn: ElasticVPC
+          Type: AWS::EC2::Subnet
+          Properties:
+            VpcId:
+              Ref: ElasticVPC
+            AvailabilityZone: ${self:provider.region}a
+            CidrBlock: "10.0.2.0/24"
+            Tags:
+              - Key: Name
+                Value: dynamodb-streams-subnet    
+        ElasticSecurityGroup:
+          DependsOn: ElasticVPC
+          Type: AWS::EC2::SecurityGroup
+          Properties:
+            GroupDescription: SecurityGroup for Elasticsearch
+            VpcId:
+              Ref: ElasticVPC
+            SecurityGroupIngress: 
+              - FromPort: 443
+                IpProtocol: tcp
+                ToPort: 443
+                CidrIp: 0.0.0.0/0
+              - FromPort: 22
+                IpProtocol: tcp
+                ToPort: 22
+                CidrIp: 0.0.0.0/0
+              - FromPort: 80
+                IpProtocol: tcp
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+            Tags:
+              - Key: Name
+                Value: dynamodb-streams-sg
+        ElasticStreamRole:
+          Type: 'AWS::IAM::ServiceLinkedRole'
+          Properties:
+            AWSServiceName: es.amazonaws.com
+            Description: 'Role for ES to access resources in my VPC'
         ImageSearch:
           Type: AWS::Elasticsearch::Domain
           Properties:
-            ElasticsearchVersion: '6.3'
+            ElasticsearchVersion: '7.7'
             DomainName: images-search-${self:provider.stage}
             ElasticsearchClusterConfig:
               DedicatedMasterEnabled: false
               InstanceCount: 1
               ZoneAwarenessEnabled: false
-              InstanceType: t2.small.elasticsearch
+              InstanceType: m5.large.elasticsearch
             EBSOptions:
               EBSEnabled: true
               Iops: 0
               VolumeSize: 10
               VolumeType: 'gp2'
+            DomainEndpointOptions:
+              EnforceHTTPS: false
             AccessPolicies:
               Version: '2012-10-17'
               Statement:
@@ -161,8 +255,13 @@ resources:
                   Effect: Allow
                   Principal:
                     AWS: '*'
-                  Action: 'es:ESHttp*'
+                  Action: es:ESHttp*
                   Resource: '*'
+            VPCOptions:
+              SubnetIds:
+                - !Ref ElasticSubnetA
+              SecurityGroupIds:
+                - !Ref ElasticSecurityGroup
         WebSocketConnectionsDynamoDBTable:
           Type: AWS::DynamoDB::Table
           Properties:
