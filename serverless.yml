@@ -50,6 +50,8 @@ provider:
             - dynamodb:Query
           Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}/index/${self:provider.environment.IMAGE_ID_INDEX}
 functions:
+    Auth:
+      handler: src/lambda/auth/auth0Authorizer.handler
     ResizeImage:
       handler: src/lambda/s3/resizeImage.handler
       events:
@@ -102,7 +104,8 @@ functions:
         events:
           - http:
               method: post
-              path: groups   
+              path: groups 
+              authorizer: Auth  
               cors: true  
               reqValidatorName: RequestBodyValidator
               documentation:
@@ -411,6 +414,16 @@ resources:
                       KeyType: HASH
                 BillingMode: PAY_PER_REQUEST
                 TableName: ${self:provider.environment.GROUPS_TABLE}
+        GatewayResponseDefault4XX:  #If authentication fails we need to make sure that proper response headers are set
+          Type: 'AWS::ApiGateway::GatewayResponse'
+          Properties:
+            ResponseParameters:
+              gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+              gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
+            ResponseType: DEFAULT_4XX
+            RestApiId:
+              Ref: 'ApiGatewayRestApi'   
         ImagesDynamoTable:
             Type: AWS::DynamoDB::Table
             Properties:
