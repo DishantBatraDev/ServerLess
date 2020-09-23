@@ -10,6 +10,8 @@
     "elasticsearch": "^15.4.1",
     "http-aws-es": "^6.0.0",
     "jimp": "^0.6.4",
+    "jsonwebtoken": "^8.5.1",
+    "middy": "^0.36.0",
     "source-map-support": "^0.5.10",
     "uuid": "^8.3.0"
   },
@@ -17,6 +19,7 @@
     "@types/aws-lambda": "^8.10.17",
     "@types/elasticsearch": "^5.0.32",
     "@types/http-aws-es": "^6.0.0",
+    "@types/jsonwebtoken": "^8.5.0",
     "@types/node": "^10.12.18",
     "@types/serverless": "^1.72.5",
     "@types/uuid": "^8.3.0",

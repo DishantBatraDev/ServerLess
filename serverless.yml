@@ -18,6 +18,8 @@ provider:
         CONNECTIONS_TABLE: Connections-${self:provider.stage}
         THUMBNAILS_S3_BUCKET: serverless-udagram-thumbnail-1-${self:provider.stage}
         SIGNED_URL_EXPIRATION: 300
+        AUTH_0_SECRET_ID: Auth0Secret-${self:provider.stage} #AWS secret resouce which will store multiple secret fields value
+        AUTH_0_SECRET_FIELD: auth0Secret #envirionment variable in particular secret resource
     iamRoleStatements:
         - Effect: Allow
           Action:
@@ -49,7 +51,17 @@ provider:
           Action:
             - dynamodb:Query
           Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}/index/${self:provider.environment.IMAGE_ID_INDEX}
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: !Ref Auth0Secret
+        - Effect: Allow
+          Action:
+            - kms:Decrypt
+          Resource: !GetAtt KMSKey.Arn
 functions:
+    RS256Auth:
+      handler: src/lambda/auth/rs256Auth0Authorizer.handler
     Auth:
       handler: src/lambda/auth/auth0Authorizer.handler
     ResizeImage:
@@ -105,7 +117,7 @@ functions:
           - http:
               method: post
               path: groups 
-              authorizer: Auth  
+              authorizer: RS256Auth  
               cors: true  
               reqValidatorName: RequestBodyValidator
               documentation:
@@ -132,6 +144,7 @@ functions:
         events:
           - http:
               method: post
+              authorizer: RS256Auth  
               path: groups/{groupId}/images
               cors: true
               reqValidatorName: RequestBodyValidator
@@ -450,3 +463,36 @@ resources:
                 TableName: ${self:provider.environment.IMAGES_TABLE}
                 StreamSpecification: # stream on dynamo table
                   StreamViewType: NEW_IMAGE #te stream should only contains updated records only 
+        KMSKey:
+          Type: AWS::KMS::Key
+          Properties:
+            Description: KMS key to encrypt Auth0 secret
+            KeyPolicy:
+              Version: '2012-10-17'
+              Id: key-default-1
+              Statement:
+                - Sid: Allow administration of the key
+                  Effect: Allow
+                  Principal:
+                    AWS:
+                      Fn::Join:
+                      - ':'
+                      - - 'arn:aws:iam:'
+                        - Ref: AWS::AccountId
+                        - 'root'
+                  Action:
+                    - 'kms:*'
+                  Resource: '*'
+        KMSKeyAlias: #Human Readable Name of the key
+          Type: AWS::KMS::Alias
+          Properties:
+            AliasName: alias/auth0Key-${self:provider.stage}
+            TargetKeyId:
+              Ref: KMSKey
+        Auth0Secret:
+          Type: AWS::SecretsManager::Secret
+          Properties:
+            Name: ${self:provider.environment.AUTH_0_SECRET_ID} #Store where keys will be stored
+            Description: Auth0 secret
+            KmsKeyId: 
+              Ref: KMSKey  #the key which will be used to encrypt the secret

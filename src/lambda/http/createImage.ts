@@ -2,7 +2,8 @@ import {APIGatewayProxyHandler, APIGatewayProxyEvent, APIGatewayProxyResult} fro
 import 'source-map-support/register'
 import * as AWS from 'aws-sdk'
 import * as uuid from 'uuid'
-
+import * as middy from 'middy'
+import {  cors } from "middy/middlewares";
 const docClient = new AWS.DynamoDB.DocumentClient();
 
 const groupsTable = process.env.GROUPS_TABLE
@@ -13,7 +14,7 @@ const urlExpiration = +process.env.SIGNED_URL_EXPIRATION
 const s3 =  new AWS.S3({
  signatureVersion: 'v4' 
 })
-export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent):Promise<APIGatewayProxyResult>=>{
+export const handler= middy( async (event: APIGatewayProxyEvent):Promise<APIGatewayProxyResult>=>{
 console.log('Processing event: ', event)
 const groupId = event.pathParameters.groupId
 const parsedBody = JSON.parse(event.body)
@@ -51,7 +52,11 @@ await createImage(newItem);
       uploadUrl
     })
   }
-}
+})
+
+handler.use(cors({
+  credentials: true   //It means it allows headers that allow credentials from the browser
+}))
 
 function getUploadUrl(imageId: string) {
   return s3.getSignedUrl("putObject", {
