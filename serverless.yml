@@ -1,9 +1,12 @@
 service:
     name: serverless-udagram-app
 plugins:
+  - serverless-offline
+  - serverless-dynamodb-local
   - serverless-webpack
   - serverless-reqvalidator-plugin
   - serverless-aws-documentation
+  - serverless-plugin-canary-deployments
 frameworkVersion: '2'
 provider: 
     name: aws
@@ -18,9 +21,15 @@ provider:
         CONNECTIONS_TABLE: Connections-${self:provider.stage}
         THUMBNAILS_S3_BUCKET: serverless-udagram-thumbnail-1-${self:provider.stage}
         SIGNED_URL_EXPIRATION: 300
+        IS_OFFLINE: false
         AUTH_0_SECRET_ID: Auth0Secret-${self:provider.stage} #AWS secret resouce which will store multiple secret fields value
         AUTH_0_SECRET_FIELD: auth0Secret #envirionment variable in particular secret resource
     iamRoleStatements:
+        - Effect: Allow
+          Action:
+            - codedeploy:*
+          Resource:
+            - '*'
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -124,7 +133,11 @@ functions:
                 summary: Create a new group
                 description: Create a new group
                 requestModels:
-                  'application/json': GroupRequest     
+                  'application/json': GroupRequest 
+        deploymentSettings:
+          type: Linear10PercentEvery1Minute
+          alias: Live
+
     GetImages:
         handler: src/lambda/http/getImages.handler
         events:
@@ -178,6 +191,15 @@ functions:
 
 custom:
   topicName: imagesTopic-${self:provider.stage}
+  serverless-offline:
+    port: 3003
+  dynamodb:
+    stages:
+      - dev
+    start:
+      port: 8100
+      inMemory: true # store database data in memory
+      migrate: true #create table as provided in the yml file
   webpack:
     webpackConfig: ./webpack.config.js 
     includeModules: true

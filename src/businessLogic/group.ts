@@ -20,6 +20,7 @@ export async function createGroup(createGroupRequest:CreateGroupRequest, jwtToke
         id:itemId,
         userId: userId,
         name: createGroupRequest.name,
-        description: createGroupRequest.description
+        description: createGroupRequest.description,
+        timeStamp: new Date().toISOString(),
     })
 }
