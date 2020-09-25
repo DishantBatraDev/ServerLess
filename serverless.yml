@@ -7,8 +7,15 @@ plugins:
   - serverless-reqvalidator-plugin
   - serverless-aws-documentation
   - serverless-plugin-canary-deployments
+  - serverless-iam-roles-per-function
 frameworkVersion: '2'
+package:
+  individually: true
 provider: 
+    tracing:
+      lambda: true
+      apiGateway: true # which enable tracing for the api gateway 
+
     name: aws
     runtime: nodejs12.x
     stage: ${opt:stage,'dev'} 
@@ -145,6 +152,15 @@ functions:
               method: get
               path: groups/{groupId}/images
               cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.GROUPS_TABLE}
     GetImage:
         handler: src/lambda/http/getImage.handler
         events:
